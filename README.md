@@ -38,6 +38,10 @@ python si_agent.py
 A full run costs roughly $1.50-2 at Claude Sonnet 5.5 prices. Transcripts, a sources list and the
 brief are saved in `transcripts/`.
 
+**Web version:** `streamlit run app.py`. On a host (e.g. Streamlit Community Cloud), set
+`ANTHROPIC_API_KEY`, and optionally `ACCESS_CODE` and `VISITOR_BUDGET` (dollars per visitor), as secrets.
+The web version saves nothing on the server and never reads files from it.
+
 ## Files
 - `SI-AGENT-v2.md`: the method (the policy the agent follows). `CASEBOOK-SPARKS.md`: patterns and
   wins from real cases in other systems.

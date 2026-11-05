@@ -496,6 +496,141 @@ def translate_command(human: str):
     return None
 
 
+# --- PER-CONVERSATION STATE --------------------------------------------------
+# The variables below hold one conversation's working state. In the terminal there's one conversation.
+# In the web version, many visitors share one running program, so each visitor keeps their own copy
+# and it's swapped in for their turn (see app.py). Otherwise one visitor's words could leak into
+# another visitor's reminders.
+def fresh_state() -> dict:
+    return {"CURRENT_THREADS": "", "QUESTIONS": [], "LAST_FIX_REQUEST": "", "LEDGER": Ledger(),
+            "RUN_COST": 0.0, "LAST_USAGE": "", "COST_SUMMARY": "", "SKEPTIC_RAN": set(),
+            "ALREADY_ASKED": set(), "DOC_COPIES": {}}
+
+
+def use_state(st: dict):
+    """Make `st` the active conversation (puts it into the module variables the functions use)."""
+    import checks as _checks, tools as _tools
+    g = globals()
+    for k in ("CURRENT_THREADS", "QUESTIONS", "LAST_FIX_REQUEST", "LEDGER", "RUN_COST", "LAST_USAGE",
+              "COST_SUMMARY", "SKEPTIC_RAN"):
+        g[k] = st[k]
+    _checks.ALREADY_ASKED = st["ALREADY_ASKED"]
+    _tools._DOC_COPIES = st["DOC_COPIES"]
+
+
+def save_state(st: dict):
+    """Copy the active conversation's variables back into `st` (some are replaced, not changed)."""
+    g = globals()
+    for k in ("CURRENT_THREADS", "LAST_FIX_REQUEST", "RUN_COST", "LAST_USAGE", "COST_SUMMARY"):
+        st[k] = g[k]
+
+
+def run_skeptic(client, messages: list, status=print) -> str:
+    """Skeptic review of the whole story so far. Returns the text to show; its points go to the writer."""
+    global LAST_FIX_REQUEST
+    status("   Skeptic reviewing the analysis so far...")
+    story = "\n\n---\n\n".join(m["content"] for m in messages if m["role"] == "assistant")
+    sk = skeptic_review(client, SKEPTIC_MODEL or MODEL, story, documents_read(), SPARKS_TEXT)
+    cost = turn_cost(sk["usage"], SKEPTIC_MODEL or MODEL) or 0.0
+    add_cost(cost)
+    LAST_FIX_REQUEST += sk_fix_request(sk)
+    LEDGER.add_skeptic(sk["items"])
+    return sk_summary(sk), cost, len(sk["items"])
+
+
+def process_reply(client, reply: str, messages: list, usage_log: list, status=print) -> dict:
+    """Everything after the writer replies: audit the labels, record, review.
+    Returns {shown, check_lines, skeptic, finished, brief, checks_cost}. Used by the terminal and the web."""
+    global LAST_FIX_REQUEST
+    # AUDIT BEFORE SHOWING. The writer proposes labels (only it knows where each claim came from);
+    # the checks audit them; the person reads the audited version.
+    usage_log.append(LAST_USAGE)
+    capture_threads(reply)
+    # 1. Quote check (code, certain): a quote that isn't in the document loses its [VERIFIED] tag.
+    results = check_quotes(reply, document_texts())
+    line = summary_line(results)
+    LAST_FIX_REQUEST = fix_request(results)
+    shown = apply_quote_labels(reply, results)
+    check_lines = [line] if line else []
+    # 2. Fact check (separate model call): problems are marked next to the claim, visibly.
+    checks_cost = 0.0
+    if FACT_CHECK and needs_check(reply):
+        status("   Checking the sources before showing the reply...")
+        fc = fact_check(client, FACT_CHECK_MODEL or MODEL, reply)
+        checks_cost = turn_cost(fc["usage"], FACT_CHECK_MODEL or MODEL) or 0.0
+        add_cost(checks_cost)
+        shown, unplaced = apply_fact_marks(shown, fc)
+        # Unconfirmed claims the checker found in a document become [VERIFIED], if code confirms
+        # the checker's quote is really there. They also count as verified quotes in the sources file.
+        shown, fc["upgraded"] = apply_upgrades(shown, fc, document_texts())
+        results += [{"quote": u["quote"], "source": u["source"] + " (confirmed by the fact checker)",
+                     "found": True, "line": None} for u in fc["upgraded"]]
+        check_lines.append(fc_summary(fc, unplaced))
+        LAST_FIX_REQUEST += fc_fix_request(fc)
+        LEDGER.add_fact_problems(fc["problems"])
+        LEDGER.add_confirm(fc.get("confirm", []))
+        usage_log[-1] += (f" | Fact check: {fc['checked']} checked, {len(fc['problems'])} problem(s), "
+                          f"≈ ${checks_cost:.2f}")
+    # 3. The "Areas: a; b; c" line is for the code (it carries the areas into every reminder), not for
+    # the person, so it's hidden. The AUDITED version is what the writer sees from now on.
+    shown = THREADS_LINE.sub("", shown).replace("\n\n\n", "\n\n")
+    messages.append({"role": "assistant", "content": shown})
+    # 4. SKEPTIC after each phase: review the whole story so far (argument level).
+    skeptic = ""
+    due = (phases_done(reply) & SKEPTIC_AFTER) - SKEPTIC_RAN
+    if due and not brief_written(reply):
+        SKEPTIC_RAN.update(due)
+        skeptic, sk_cost, n = run_skeptic(client, messages, status)
+        checks_cost += sk_cost
+        usage_log[-1] += f" | Skeptic: {n} item(s), ≈ ${sk_cost:.2f}"
+    LEDGER.add(shown, results)   # the audited version: upgraded claims leave the "needs checking" list
+    usage_log[-1] += (" | " + line.splitlines()[0]) if line else ""
+    brief_at = BRIEF_HEADING.search(shown)
+    return {"shown": shown, "check_lines": check_lines, "skeptic": skeptic, "checks_cost": checks_cost,
+            "finished": brief_written(reply), "brief": shown[brief_at.start():] if brief_at else ""}
+
+
+def prepare_message(client, human: str, last_reply: str, messages: list, finished: bool,
+                    allow_files: bool = True, status=print) -> str:
+    """Turn what the person typed into the next message: commands, remembered words, defaults,
+    the brief checklist, and the reminder. Used by the terminal and the web."""
+    global LAST_FIX_REQUEST
+    if not human and not finished and over_budget():
+        human = "brief"   # over budget: Enter means "wrap up", not "another phase"
+    command = translate_command(human)
+    if command:
+        human = command
+        # Brief requested before the Phase 4 review happened (Phase 4 skipped): review the whole
+        # story first, so the part people share is reviewed. Its points go into this brief request.
+        if "final brief" in command.lower() and 4 not in SKEPTIC_RAN:
+            SKEPTIC_RAN.add(4)
+            text, _, _ = run_skeptic(client, messages, status)
+            status("   " + text)
+    elif human and not (allow_files and is_file_path(human)):
+        capture_question(human)
+    # A dragged-in file (terminal only; the web version never reads files from the server).
+    added = add_document(human) if allow_files else None
+    if added:
+        status(f"   Added '{added}' to the docs folder.")
+        human = f"I added a document for you to read: '{added}' (it's in the docs folder)."
+    # Nothing typed: move on with sensible defaults, and say which ones.
+    if not human:
+        human = ("(No reply. Please continue to the next phase. Use sensible defaults for "
+                 "any open questions and tell me in one line which ones you chose.)")
+    # The brief skipped required parts in two runs despite the policy, so code adds the checklist
+    # whenever the brief is what comes next (asked for, or Enter after Phase 4).
+    nxt = NEXT_LINE.search(last_reply.split("Done:")[-1])
+    if "final brief" in human.lower() or (human.startswith("(No reply") and nxt
+                                          and "final brief" in nxt.group(1).lower()):
+        human += BRIEF_CHECKLIST
+    return human + reminder()
+
+
+def next_phase_label(reply: str) -> str:
+    nxt = NEXT_LINE.search(reply.split("Done:")[-1])
+    return nxt.group(1).strip(" .*") if nxt else ""
+
+
 def run_conversation(client, policy: str, user_opening: str):
     messages = [{"role": "user", "content": user_opening + reminder()}]
     usage_log = []   # one cost line per agent turn, saved with the transcript
@@ -518,86 +653,35 @@ def run_conversation(client, policy: str, user_opening: str):
                 print(f"Stopping. Transcript saved at {transcript}")
                 break
             continue
-        # AUDIT BEFORE SHOWING. The writer proposes labels (only it knows where each claim came from);
-        # the checks audit them; the person reads the audited version.
-        usage_log.append(LAST_USAGE)
-        capture_threads(reply)
-        global LAST_FIX_REQUEST
-        # 1. Quote check (code, certain): a quote that isn't in the document loses its [VERIFIED] tag.
-        results = check_quotes(reply, document_texts())
-        line = summary_line(results)
-        LAST_FIX_REQUEST = fix_request(results)
-        shown = apply_quote_labels(reply, results)
-        # 2. Fact check (separate model call): problems are marked next to the claim, visibly.
-        fc_cost, fc_line = 0.0, ""
-        if FACT_CHECK and needs_check(reply):
-            print("   Checking the sources before showing the reply...", flush=True)
-            fc = fact_check(client, FACT_CHECK_MODEL or MODEL, reply)
-            fc_cost = turn_cost(fc["usage"], FACT_CHECK_MODEL or MODEL) or 0.0
-            add_cost(fc_cost)
-            shown, unplaced = apply_fact_marks(shown, fc)
-            # Unconfirmed claims the checker found in a document become [VERIFIED], if code confirms
-            # the checker's quote is really there. They also count as verified quotes in the sources file.
-            shown, fc["upgraded"] = apply_upgrades(shown, fc, document_texts())
-            results += [{"quote": u["quote"], "source": u["source"] + " (confirmed by the fact checker)",
-                         "found": True, "line": None} for u in fc["upgraded"]]
-            fc_line = fc_summary(fc, unplaced)
-            LAST_FIX_REQUEST += fc_fix_request(fc)
-            LEDGER.add_fact_problems(fc["problems"])
-            LEDGER.add_confirm(fc.get("confirm", []))
-            usage_log[-1] += (f" | Fact check: {fc['checked']} checked, {len(fc['problems'])} problem(s), "
-                              f"≈ ${fc_cost:.2f}")
-        # 3. Show the audited reply, then the check lines. The "Areas: a; b; c" line is for the code
-        # (it carries the areas into every reminder), not for the person, so it's hidden from view.
-        shown = THREADS_LINE.sub("", shown).replace("\n\n\n", "\n\n")
+        out = process_reply(client, reply, messages, usage_log,
+                            status=lambda l: print(l, flush=True))
         print("\n" + "-" * 70)
-        render(shown)
+        render(out["shown"])
         print("-" * 70)
-        if line:
-            print("   " + line)
-        if fc_line:
-            print("   " + fc_line)
-        # Remember the AUDITED version, so the writer builds on corrected labels.
-        messages.append({"role": "assistant", "content": shown})
-        # SKEPTIC: after Phase 2 and after Phase 4, review the whole story so far (argument level).
-        due = (phases_done(reply) & SKEPTIC_AFTER) - SKEPTIC_RAN
-        if due and not brief_written(reply):
-            SKEPTIC_RAN.update(due)
-            print("   Skeptic reviewing the analysis so far...", flush=True)
-            story = "\n\n---\n\n".join(m["content"] for m in messages if m["role"] == "assistant")
-            sk = skeptic_review(client, SKEPTIC_MODEL or MODEL, story, documents_read(), SPARKS_TEXT)
-            sk_cost = turn_cost(sk["usage"], SKEPTIC_MODEL or MODEL) or 0.0
-            add_cost(sk_cost)
-            fc_cost += sk_cost
-            print("   " + sk_summary(sk))
-            LAST_FIX_REQUEST += sk_fix_request(sk)
-            LEDGER.add_skeptic(sk["items"])
-            usage_log[-1] += f" | Skeptic: {len(sk['items'])} item(s), ≈ ${sk_cost:.2f}"
-        LEDGER.add(shown, results)   # the audited version: upgraded claims leave the "needs checking" list
+        for l in out["check_lines"]:
+            print("   " + l)
+        if out["skeptic"]:
+            print("   " + out["skeptic"])
         LEDGER.write(sources_file, documents_read())
-        usage_log[-1] += (" | " + line.splitlines()[0]) if line else ""
         save_transcript(messages, transcript, usage_log)
-        if brief_written(reply):
-            finished = True
-        # Save the brief on its own, so it can be shared without the whole conversation.
-        brief_at = BRIEF_HEADING.search(shown)
-        if brief_at:
-            brief_file.write_text(shown[brief_at.start():], encoding="utf-8")   # the audited version
+        finished = finished or out["finished"]
+        if out["brief"]:   # the brief on its own, so it can be shared without the whole conversation
+            brief_file.write_text(out["brief"], encoding="utf-8")
             print(f"   (Final brief saved to {brief_file.name})")
 
         # --- human's turn (the PAUSE) ---
         if COST_SUMMARY:
-            print("\n   " + COST_SUMMARY + (f"\n      Checks (fact checker / skeptic): ≈ ${fc_cost:.2f} "
-                                             f"(included in the run total ≈ ${RUN_COST:.2f})" if fc_cost else ""))
+            print("\n   " + COST_SUMMARY + (f"\n      Checks (fact checker / skeptic): ≈ ${out['checks_cost']:.2f} "
+                                             f"(included in the run total ≈ ${RUN_COST:.2f})"
+                                             if out["checks_cost"] else ""))
         note = budget_note()
         if note and not finished:
             print(note)
         if finished:
             print(END_PROMPT)
         else:
-            nxt = NEXT_LINE.search(reply.split("Done:")[-1])
-            print(PAUSE_PROMPT.replace("move on", f"move on to {nxt.group(1).strip(' .*')}" if nxt
-                                       else "move on"))
+            nxt = next_phase_label(reply)
+            print(PAUSE_PROMPT.replace("move on", f"move on to {nxt}" if nxt else "move on"))
         human = input("> ").strip()
         if human.lower() in ("quit", "exit") and not finished and reached_phase_4(messages):
             # The health-insurance run reached Phase 4 and ended without a brief. Offer it once.
@@ -608,42 +692,8 @@ def run_conversation(client, policy: str, user_opening: str):
         if human.lower() in ("quit", "exit") or (finished and not human):
             print(f"Stopping. Transcript saved at {transcript}")
             break
-        if not human and not finished and over_budget():
-            human = "brief"   # over budget: Enter means "wrap up", not "another phase"
-        command = translate_command(human)
-        if command:
-            human = command
-            # Brief requested before the Phase 4 review happened (Phase 4 skipped): review the whole
-            # story first, so the part people share is reviewed. Its points go into this brief request.
-            if "final brief" in command.lower() and 4 not in SKEPTIC_RAN:
-                SKEPTIC_RAN.add(4)
-                print("   Skeptic reviewing everything before the brief...", flush=True)
-                story = "\n\n---\n\n".join(m["content"] for m in messages if m["role"] == "assistant")
-                sk = skeptic_review(client, SKEPTIC_MODEL or MODEL, story, documents_read(), SPARKS_TEXT)
-                add_cost(turn_cost(sk["usage"], SKEPTIC_MODEL or MODEL) or 0.0)
-                print("   " + sk_summary(sk))
-                LAST_FIX_REQUEST += sk_fix_request(sk)
-                LEDGER.add_skeptic(sk["items"])
-        elif human and not is_file_path(human):
-            capture_question(human)
-        # A dragged-in file: copy it into the docs folder and tell the model about it.
-        added = add_document(human)
-        if added:
-            print(f"   Added '{added}' to the docs folder.")
-            human = f"I added a document for you to read: '{added}' (it's in the docs folder)."
-        # If the user just pressed Enter (no input), DON'T force them or error —
-        # tell the agent to move on with sensible defaults, and say which ones it chose.
-        if not human:
-            human = ("(No reply. Please continue to the next phase. Use sensible defaults for "
-                     "any open questions and tell me in one line which ones you chose.)")
-        # The brief skipped required parts in two runs despite the policy, so code adds the checklist
-        # whenever the brief is what comes next (asked for, or Enter after Phase 4).
-        nxt = NEXT_LINE.search(reply.split("Done:")[-1])
-        if "final brief" in human.lower() or (human.startswith("(No reply") and nxt
-                                              and "final brief" in nxt.group(1).lower()):
-            human += BRIEF_CHECKLIST
-        # Remember what the human said (plus the re-anchor), then loop.
-        messages.append({"role": "user", "content": human + reminder()})
+        messages.append({"role": "user", "content": prepare_message(
+            client, human, reply, messages, finished, status=lambda l: print(l, flush=True))})
 
 
 def save_transcript(messages: list, out: Path, usage_log: list = ()):

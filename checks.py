@@ -161,6 +161,10 @@ class Ledger:
                         bucket.append(_plain(line))
 
     def write(self, path: Path, documents: list):
+        path.write_text(self.text(documents), encoding="utf-8")
+
+    def text(self, documents: list) -> str:
+        """The sources list as text (the web version offers it as a download)."""
         found = [r for r in self.verified if r["found"]]
         missing = [r for r in self.verified if not r["found"]]
         out = ["# Sources for this run", "",
@@ -182,4 +186,4 @@ class Ledger:
         out += [f"- {u}" for u in self.unverified] or ["- (none)"]
         out += ["", "## Documents and pages read this run", ""]
         out += [f"- {d}" for d in documents] or ["- (none)"]
-        path.write_text("\n".join(out) + "\n", encoding="utf-8")
+        return "\n".join(out) + "\n"

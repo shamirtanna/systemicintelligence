@@ -1,0 +1,17 @@
+# PUBLIC REPO: ignore everything, then allow only the files meant to be public.
+# Anything new stays private unless it's added to this list on purpose.
+# (.env with your API key, transcripts, dragged-in documents and working notes are never committed.)
+*
+!.gitignore
+!README.md
+!requirements.txt
+!.env.example
+!si_agent.py
+!tools.py
+!checks.py
+!factcheck.py
+!skeptic.py
+!eval_factcheck.py
+!compare_writers.py
+!SI-AGENT-v2.md
+!CASEBOOK-SPARKS.md

@@ -38,7 +38,7 @@ python si_agent.py
 A full run costs roughly $1.50-2 at Claude Sonnet 5.5 prices. Transcripts, a sources list and the
 brief are saved in `transcripts/`.
 
-**Web version:** `streamlit run app.py`. On a host (e.g. Streamlit Community Cloud), set
+**Web version:** `python -m streamlit run app.py` (works even if the `streamlit` command isn't on your PATH). On a host (e.g. Streamlit Community Cloud), set
 `ANTHROPIC_API_KEY`, and optionally `ACCESS_CODE` and `VISITOR_BUDGET` (dollars per visitor), as secrets.
 The web version saves nothing on the server and never reads files from it.
 

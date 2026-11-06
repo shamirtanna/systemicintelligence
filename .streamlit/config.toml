@@ -1,0 +1,6 @@
+# Calm blue instead of Streamlit's default red, so buttons and focused boxes don't look like errors.
+[theme]
+primaryColor = "#2563EB"
+
+[browser]
+gatherUsageStats = false

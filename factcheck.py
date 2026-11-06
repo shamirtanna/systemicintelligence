@@ -152,36 +152,39 @@ def fc_summary(result: dict, unplaced: list | None = None) -> str:
     """What the person sees after a reply. `unplaced` = problems that couldn't be marked next to their
     claim in the reply (they're listed here instead); None = list them all."""
     if result["error"]:
-        return f"Fact check didn't run cleanly ({result['error'][:120]}). The reply is unchecked."
+        return f"The check didn't run cleanly ({result['error'][:120]}). Treat this reply as unchecked."
     total = len(result["problems"])
     probs = result["problems"] if unplaced is None else unplaced
-    marked = total - len(probs)
-    sourced = result.get("sourced", 0)
-    coverage = (f" of {sourced} sourced" if sourced > result["checked"] else "")
-    found = f"{total or 'no'} problem(s) found" + (f", {marked} marked in the reply" if marked else "")
-    line = f"Fact check: {result['checked']}{coverage} sourced claim(s) checked against the documents · {found}"
+    relabelled = total - len(probs)
     up = len(result.get("upgraded", []))
-    if up:
-        line += f"\n   {up} unconfirmed claim(s) upgraded to [VERIFIED]: the checker found them in a document."
+    sourced, checked = result.get("sourced", 0), result["checked"]
+    line = (f"Checked before you saw this: {checked} sourced claim(s) compared with the documents"
+            + (f" (of {sourced}; the limit is 12 per reply)" if sourced > checked else ""))
+    changes = ([f"{relabelled} changed to [CHECK]"] if relabelled else []) + \
+              ([f"{up} confirmed and changed to [VERIFIED]"] if up else [])
+    line += (": " + ", ".join(changes) + "." if changes else ": no changes needed.")
+    for p in probs[:4]:   # problems that couldn't be matched to a line in the reply
+        line += (f"\n   - Also found: \"{p['claim']}\": {REASONS.get(p['verdict'], p['verdict'].lower())}. "
+                 f"Source: {p['source_says']}")
     left = max(0, result.get("unconfirmed", 0) - up)
-    if left:
-        line += (f"\n   {left} other claim(s) are labelled [CHECK] or [UNVERIFIED]: not confirmed "
-                 f"by anyone yet." + (" The ones that matter most:" if result.get("confirm") else ""))
-    if sourced > result["checked"]:
-        line += f" ({sourced - result['checked']} sourced claim(s) not checked: the checker's limit is 12)"
-    for p in probs[:4]:
-        line += f"\n   {p['verdict']}: {p['claim']}. Source: {p['source_says']}"
-    if len(probs) > 4:
-        line += f"\n   ...and {len(probs) - 4} more (see the sources file)."
-    if result.get("confirm"):
-        line += "\n   Confirm these first:" if not left else ""
-        for i, c in enumerate(result["confirm"], 1):
-            line += f"\n     {i}. {c['claim']}. {c['why']}\n        Confirm: {c['how']}"
+    if left or result.get("confirm"):
+        line += (f"\n   {left} claim(s) are [CHECK] or [UNVERIFIED]: nobody has confirmed them yet."
+                 if left else "")
+        if result.get("confirm"):
+            line += "\n   Confirm these first, before relying on them:"
+            for i, c in enumerate(result["confirm"], 1):
+                line += f"\n     {i}. {c['claim']}. {c['why']} How: {c['how']}"
     return line
 
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+
+
+REASONS = {"OVERSTATED": "checked, the source says less than this", "WRONG": "checked, the source says otherwise",
+           "NOT FOUND": "checked, not found in the cited source", "TAG MISSING": "no source given",
+           "MATH": "checked, the math is off"}
+from checks import VERIFIED_TAG  # noqa: E402
 
 
 def apply_fact_marks(reply: str, result: dict) -> tuple:
@@ -195,10 +198,16 @@ def apply_fact_marks(reply: str, result: dict) -> tuple:
         if hit is None:
             unplaced.append(p)
             continue
-        says = p["source_says"][:160] + ("..." if len(p["source_says"]) > 160 else "")
-        label = {"TAG MISSING": "new fact with no source", "NOT FOUND": "not found in the cited source",
-                 "MATH": "math off"}.get(p["verdict"], p["verdict"].lower())
-        lines[hit] += f" **[FACT CHECK: {label}. {says}]**"
+        says = p["source_says"][:200] + ("..." if len(p["source_says"]) > 200 else "")
+        says = says.replace("[", "(").replace("]", ")")
+        # ONE set of labels for the reader. A claim the checker found a problem with becomes [CHECK],
+        # with the reason, instead of keeping [VERIFIED] next to a separate "fact check" marker.
+        reason = REASONS.get(p["verdict"], p["verdict"].lower())
+        tag = f"[CHECK: {reason}: {says}]" if says else f"[CHECK: {reason}]"
+        if p["verdict"] in ("OVERSTATED", "WRONG", "NOT FOUND") and VERIFIED_TAG.search(lines[hit]):
+            lines[hit] = VERIFIED_TAG.sub(tag, lines[hit], count=1)   # the claim's own label changes
+        else:
+            lines[hit] += " " + tag   # a new fact with no label, or math: the label is added
     return "\n".join(lines), unplaced
 
 

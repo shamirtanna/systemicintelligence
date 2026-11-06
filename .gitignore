@@ -8,6 +8,8 @@
 !.env.example
 !si_agent.py
 !app.py
+!.streamlit/
+!.streamlit/config.toml
 !tools.py
 !checks.py
 !factcheck.py

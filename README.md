@@ -12,11 +12,11 @@ denials. Not legal, medical or financial advice.
 It goes one phase at a time and pauses after each, so you can ask questions or go deeper:
 1. **The big picture:** what it is, the key points, how the main options differ, your situation case
    by case, and the areas worth digging into.
-2. **How it really works:** each area in depth: costs, fine print, who's on the other side, what
-   protects you and what doesn't.
+2. **Deep dive:** each area in depth: costs, fine print, who's on the other side, what protects you
+   and what doesn't.
 3. **What you can do:** practical steps, ready-to-send messages.
 4. **How to push for change:** specific asks, to whom, and how.
-5. **A final brief.**
+5. **Final brief:** a one-page summary to keep or share.
 
 ## How it checks itself
 - Every factual claim is labelled: **[VERIFIED: source]** (read this session, quoted), **[CHECK: why]**
@@ -24,7 +24,8 @@ It goes one phase at a time and pauses after each, so you can ask questions or g
   or its own reasoning).
 - **Before you see a reply:** code checks every quote word for word against the documents
   (`checks.py`), and a separate fact checker compares sourced claims with the source, redoes the math,
-  and tries to confirm unconfirmed claims (`factcheck.py`). Problems are marked next to the claim.
+  and tries to confirm unconfirmed claims (`factcheck.py`). A claim that doesn't hold up has its
+  label changed to [CHECK] with the reason, so the reader sees one set of labels.
 - **After each phase:** a separate skeptic reviews the argument as a whole (`skeptic.py`).
 - **Limits:** about half of claims end up unconfirmed in a typical run; checks reduce errors but don't
   catch all of them (`eval_factcheck.py` measures this). You are the last check.

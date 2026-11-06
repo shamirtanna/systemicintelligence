@@ -106,12 +106,12 @@ def summary_line(results: list) -> str:
     if not results:
         return ""
     missing = [r for r in results if not r["found"]]
-    line = (f"Source check: {len(results) - len(missing)} of {len(results)} quotes tagged [VERIFIED] "
-            f"were found word for word in the documents read this run.")
+    line = (f"Quotes: {len(results) - len(missing)} of {len(results)} found word for word in the documents "
+            f"(checked by code)" + (", the rest changed to [CHECK]." if missing else "."))
     for r in missing[:3]:
-        line += f'\n   Not found: "{r["quote"][:120]}"'
+        line += f'\n   - Not found: "{r["quote"][:160]}"'
     if len(missing) > 3:
-        line += f"\n   ...and {len(missing) - 3} more (see the sources file)."
+        line += f"\n   ...and {len(missing) - 3} more (see the sources list)."
     return line
 
 

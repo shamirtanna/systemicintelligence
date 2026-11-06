@@ -1,15 +1,18 @@
 """
 The web version of the SI agent (Streamlit). Same agent, same checks, in a browser.
 
-Run locally:  streamlit run app.py
+Run locally:  python -m streamlit run app.py
 Settings (Streamlit secrets on the host, or .env locally):
   ANTHROPIC_API_KEY  required
   ACCESS_CODE        if set, visitors must enter it (keeps strangers from spending your money)
-  VISITOR_BUDGET     dollars per visitor (default 2.50). At the limit: one final brief, then it stops.
-Safety: no file uploads, no reading files on the server, nothing saved on the server.
+  VISITOR_BUDGET     dollars per visitor (falls back to RUN_BUDGET, then 3.00). At the limit: one final
+                     brief, then it stops.
+  SAVE_TRANSCRIPTS   1 = save each conversation to transcripts/ (LOCAL TESTING ONLY; never on the host)
+Safety: no file uploads, no reading files on the server, nothing saved on the server by default.
 """
 import os
 import threading
+from datetime import datetime
 
 import streamlit as st
 
@@ -27,9 +30,11 @@ for k, v in {"PRICE_IN": "2", "PRICE_OUT": "10", "PRICE_CACHE_WRITE": "2.50", "P
     os.environ.setdefault(k, v)
 
 import si_agent as s  # noqa: E402  (must load after the settings above)
+from skeptic import SK_INTRO  # noqa: E402
 
-VISITOR_BUDGET = float(os.environ.get("VISITOR_BUDGET", "2.50") or 2.50)
+VISITOR_BUDGET = float(os.environ.get("VISITOR_BUDGET") or os.environ.get("RUN_BUDGET") or 3.00)
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "").strip()
+SAVE = os.environ.get("SAVE_TRANSCRIPTS", "").strip() == "1"
 EXAMPLE = "My insurer denied a claim for an MRI my doctor ordered."
 
 
@@ -38,6 +43,11 @@ def shared():
     """One client, one policy, and one lock for the whole server. The lock makes visitors take turns:
     the agent's working state is swapped in per visitor, so only one turn may run at a time."""
     return s.make_client(), s.load_policy(), threading.Lock()
+
+
+def display(text: str) -> str:
+    """Markdown shows `code` in a colour that looks like a warning; the agent's text has no real code."""
+    return text.replace("`", "")
 
 
 st.set_page_config(page_title="Systemic Intelligence", page_icon="🔎", layout="centered")
@@ -54,32 +64,61 @@ if ACCESS_CODE and not st.session_state.get("ok"):
         st.error("That code didn't work.")
     st.stop()
 
-# --- one visitor's conversation ---
+# --- one visitor's conversation (a page refresh starts a new one) ---
 ss = st.session_state
-if "si" not in ss:
-    ss.si = s.fresh_state()      # this visitor's own working state (areas, their words, documents)
-    ss.messages, ss.usage_log, ss.chat = [], [], []
-    ss.finished, ss.last_reply, ss.brief, ss.sources = False, "", "", ""
+# Each piece is set on its own, so a session started under an older version of this page still gets
+# anything added later (a missing "transcript" crashed a session that was open during an update).
+for key, make in (("si", s.fresh_state), ("messages", list), ("usage_log", list), ("chat", list),
+                  ("finished", lambda: False), ("last_reply", str), ("brief", str), ("sources", str),
+                  ("transcript", lambda: (s.TRANSCRIPT_DIR / f"web-{datetime.now():%Y%m%d-%H%M%S}.md")
+                   if SAVE else None)):
+    if key not in ss:
+        ss[key] = make()
+for key, value in s.fresh_state().items():   # same for the agent's own state
+    ss.si.setdefault(key, value)
 
 with st.expander("How this works, and how to read it", expanded=not ss.chat):
     st.markdown(
-        "We go one phase at a time, and I pause after each so you can ask questions, go deeper, or move on:\n"
-        "1. **The big picture** · 2. **How it really works** · 3. **What you can do** · "
-        "4. **How to push for change** · then a **final brief**.\n\n"
-        "**Labels.** **[VERIFIED: source]** I read it and quote it · **[CHECK: why]** probably right, not "
-        "confirmed (says what to confirm, and where) · **[UNVERIFIED: why]** general knowledge or my own "
-        "reasoning. Before you see each reply, a separate checker compares its sourced claims with the "
-        "documents and marks problems **[FACT CHECK: ...]**. You are the last check: confirm anything "
-        "important before acting on it.\n\n"
-        "**Privacy.** Nothing is saved on this server. Your messages are sent to Anthropic's API to write "
-        "the answers. Don't type personal details (names, addresses, policy or account numbers).\n\n"
-        "**Not advice.** This explains systems; it isn't legal, medical or financial advice.")
+        "**We go one phase at a time.** I pause after each, so you can ask questions, go deeper, or move on.\n"
+        "1. **The big picture:** what it is, the key points, how the main options differ\n"
+        "2. **Deep dive:** each area in depth: costs, fine print, who's on the other side\n"
+        "3. **What you can do:** practical steps, ready-to-send messages\n"
+        "4. **How to push for change:** specific asks, to whom, and how\n"
+        "5. **Final brief:** a one-page summary to keep or share\n\n"
+        "**Every factual claim has one of three labels:**\n"
+        "- **[VERIFIED: source]** I read the source and quote it\n"
+        "- **[CHECK: why]** probably right, but not confirmed. Says what to confirm, and where\n"
+        "- **[UNVERIFIED: why]** general knowledge or my own reasoning. Treat it as a lead\n\n"
+        "**How the labels are kept honest:** before you see a reply, every quote is checked word for word "
+        "against the documents, and a separate checker compares the claims with the sources. If a claim "
+        "doesn't hold up, its label changes to [CHECK] with the reason.\n\n"
+        f"**A second opinion after each phase:** {SK_INTRO}\n\n"
+        "**You are the last check.** Confirm anything important before acting on it.\n\n"
+        "**Privacy:** nothing is saved on this server. Your messages are sent to Anthropic's API to write "
+        "the answers, so don't type personal details (names, addresses, policy or account numbers).\n\n"
+        "**Not advice:** this explains systems; it isn't legal, medical or financial advice.")
+
+
+def show_turn(turn: dict):
+    st.markdown(display(turn["text"]))
+    if turn.get("checks"):
+        with st.expander("How this reply was checked, and what to confirm"):
+            for c in turn["checks"]:
+                st.markdown(display(c).replace("\n   ", "\n"))
+    if turn.get("skeptic"):
+        with st.expander("A second opinion: a separate reviewer's challenge"):
+            st.markdown(SK_INTRO)
+            st.markdown(display(turn["skeptic"]))
+    if turn.get("cost"):
+        st.caption(turn["cost"])
+
 
 for turn in ss.chat:
     with st.chat_message(turn["role"]):
-        st.markdown(turn["text"])
-        for extra in turn.get("extras", []):
-            st.caption(extra)
+        if turn["role"] == "user":
+            st.markdown(turn["text"])
+        else:
+            show_turn(turn)
 
 
 def run_turn(user_text: str, human: str | None):
@@ -89,7 +128,9 @@ def run_turn(user_text: str, human: str | None):
     with st.chat_message("user"):
         st.markdown(user_text)
     with st.chat_message("assistant"):
-        box = st.status("Working: searching, reading and checking (this can take a minute or two)...")
+        # Open by default, so the visitor watches the work happen (searches, documents, checks).
+        box = st.status("Working: searching, reading and checking. This usually takes 1 to 3 minutes...",
+                        expanded=True)
         with lock:
             s.use_state(ss.si)
             try:
@@ -106,40 +147,56 @@ def run_turn(user_text: str, human: str | None):
                     return
                 out = s.process_reply(client, reply, ss.messages, ss.usage_log, status=box.write)
                 ss.sources = s.LEDGER.text(s.documents_read())   # nothing written to the server's disk
-                cost_line = s.COST_SUMMARY.replace("\n", " ").replace("      ", " ")
+                if ss.transcript:                                # local testing only
+                    s.TRANSCRIPT_DIR.mkdir(exist_ok=True)
+                    s.save_transcript(ss.messages, ss.transcript, ss.usage_log)
+                    ss.transcript.with_name(ss.transcript.stem + "-sources.md").write_text(ss.sources, encoding="utf-8")
+                cost = s.COST_SUMMARY.replace("\n", " ").replace("      ", " ")
             finally:
                 s.save_state(ss.si)
         box.update(label="Done", state="complete")
-        st.markdown(out["shown"])
-        extras = out["check_lines"] + ([out["skeptic"]] if out["skeptic"] else []) + [cost_line]
-        for extra in extras:
-            st.caption(extra)
-    ss.chat.append({"role": "assistant", "text": out["shown"], "extras": extras})
+        turn = {"role": "assistant", "text": out["shown"], "checks": out["check_lines"],
+                "skeptic": out["skeptic"], "cost": cost}
+        show_turn(turn)
+    ss.chat.append(turn)
     ss.last_reply = reply
     ss.finished = ss.finished or out["finished"]
     if out["brief"]:
         ss.brief = out["brief"]
 
 
+def progress() -> str:
+    done = set().union(*(s.phases_done(m["content"]) for m in ss.messages if m["role"] == "assistant")) \
+        if ss.messages else set()
+    if ss.finished:
+        done |= {5}
+    nxt = next((n for n in range(1, 6) if n not in done), None)
+    return "  ·  ".join(f"✓ {n} {s.PHASE_NAMES[n]}" if n in done else
+                        (f"**→ {n} {s.PHASE_NAMES[n]}**" if n == nxt else f"{n} {s.PHASE_NAMES[n]}")
+                        for n in range(1, 6))
+
+
 spent = ss.si["RUN_COST"]
 over = spent >= VISITOR_BUDGET
 
 if not ss.chat:
-    st.markdown("**What system or problem do you want to look at?** A topic (\"prediction markets\", "
-                "\"my health insurance\") or something that happened to you.")
-    if st.button(f"Try the example: {EXAMPLE}"):
-        run_turn(EXAMPLE, None)
-        st.rerun()
-    topic = st.chat_input("Type a topic or what happened...")
-    if topic:
-        run_turn(topic, None)
-        st.rerun()
+    with st.form("start"):
+        st.markdown("**What system or problem do you want to look at?** For example:\n"
+                    "- prediction markets\n- my health insurance\n- my rent keeps going up\n"
+                    f"- {EXAMPLE.lower().rstrip('.')}")
+        topic = st.text_input("Your topic", placeholder=f"Press Enter to use the example: {EXAMPLE}",
+                              label_visibility="collapsed")
+        if st.form_submit_button("Start"):
+            text = topic.strip() or EXAMPLE
+            run_turn(text, None)
+            st.rerun()
 else:
+    st.markdown(progress())
     st.caption(f"Spent so far ≈ ${spent:.2f} of this visit's ${VISITOR_BUDGET:.2f} limit.")
     if over and ss.finished:
         st.info("This visit has reached its limit. Download your brief below. Thanks for trying it!")
     elif over:
-        st.warning("This visit has reached its limit, so the next step is the final brief.")
+        st.info("This visit has reached its limit, so the next step is the final brief.")
         if st.button("Write the final brief"):
             run_turn("Write the final brief.", "brief")
             st.rerun()

@@ -77,27 +77,39 @@ def skeptic_review(client, model: str, analysis: str, sources: list, sparks_text
     return {"items": items, "usage": usage, "error": "" if items else "unexpected answer format"}
 
 
-def sk_summary(result: dict) -> str:
-    """What the person sees."""
+SK_INTRO = ("A separate reviewer read everything so far and challenged it: what's strong, what's weak, what the "
+            "other side would say, and what's missing. It doesn't change what you've read. The next part "
+            "answers these points, and the final brief lists what was challenged and what changed.")
+
+
+def sk_summary(result: dict, full: bool = False) -> str:
+    """What the person sees. full=True (web): every item, nothing shortened. Terminal: one per kind."""
     if result["error"]:
-        return f"Skeptic review didn't run cleanly ({result['error'][:120]})."
-    out = ("SKEPTIC REVIEW: a separate reviewer judging the argument so far. It doesn't change what you've\n"
-           "   read: the writer answers these in the next part, and the brief lists what was challenged.")
+        return f"The review didn't run cleanly ({result['error'][:120]})."
+    out = "" if full else "SKEPTIC REVIEW: " + SK_INTRO
     shown, seen_kinds = 0, set()
     for it in result["items"]:
-        if it["kind"] in seen_kinds:          # terminal shows the top item of each kind; file has all
+        if it["kind"] in seen_kinds and not full:   # terminal: top item of each kind; file has all
             continue
         seen_kinds.add(it["kind"])
         shown += 1
         p = [x.rstrip(" .") for x in it["parts"]] + ["", "", ""]
-        p = [x if len(x) <= 140 else x[:(x.rfind(" ", 0, 137) if x.rfind(" ", 0, 137) > 60 else 137)] + "..."
-             for x in p]   # cut at a word, not mid-word
+        if not full:   # the terminal is narrow: shorten, cutting at a word, not mid-word
+            p = [x if len(x) <= 140 else x[:(x.rfind(" ", 0, 137) if x.rfind(" ", 0, 137) > 60 else 137)]
+                 + "..." for x in p]
         # One short line per kind in the terminal; the "why" and "how to check" parts are in the sources file.
-        detail = {"WEAK": f"{p[0]}. Would settle it: {p[2]}", "OTHER SIDE": p[0],
-                  "CONFLICT": f"{p[0]}: {p[1]}", "MISSING": p[0], "ASK": p[0],
-                  "STRENGTH": p[0]}.get(it["kind"], " | ".join(it["parts"]))
-        out += f"\n     • {LABELS.get(it['kind'], it['kind'])}: {detail.replace('....', '...')}"
-    if len(result["items"]) > shown:
+        if full:
+            detail = {"WEAK": f"{p[0]}. Why: {p[1]}. What would settle it: {p[2]}",
+                      "OTHER SIDE": f"{p[0]}. How to check: {p[1]}", "CONFLICT": f"{p[0]}: {p[1]}",
+                      "MISSING": f"{p[0]}. Why it matters: {p[1]}", "ASK": f"{p[0]} (where to look: {p[1]})",
+                      "STRENGTH": f"{p[0]}. {p[1]}"}.get(it["kind"], " | ".join(it["parts"]))
+        else:
+            detail = {"WEAK": f"{p[0]}. Would settle it: {p[2]}", "OTHER SIDE": p[0],
+                      "CONFLICT": f"{p[0]}: {p[1]}", "MISSING": p[0], "ASK": p[0],
+                      "STRENGTH": p[0]}.get(it["kind"], " | ".join(it["parts"]))
+        out += (f"\n- **{LABELS.get(it['kind'], it['kind'])}:** " if full
+                else f"\n     • {LABELS.get(it['kind'], it['kind'])}: ") + detail.replace('....', '...')
+    if len(result["items"]) > shown and not full:
         out += f"\n   (+{len(result['items']) - shown} more in the sources file)"
     return out
 

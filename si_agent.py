@@ -1,7 +1,7 @@
 """
 Systemic Intelligence (SI) agent: the conversation loop.
 
-Goes one phase at a time (big picture, how it really works, what you can do, how to push for change,
+Goes one phase at a time (big picture, deep dive, what you can do, how to push for change,
 final brief), pausing after each. Uses web search + read_document (tools.py) to read primary sources.
 Before each reply is shown, its labels are audited: code checks every quote (checks.py) and a
 separate fact checker checks sourced claims (factcheck.py). A separate skeptic reviews the argument
@@ -56,8 +56,12 @@ from tools import (TOOLS as LOCAL_TOOLS, ANTHROPIC_WEB_SEARCH, SEARCH_WEB_TOOL,
 from checks import check_quotes, summary_line, fix_request, Ledger, apply_quote_labels
 from factcheck import fact_check, fc_summary, fc_fix_request, needs_check, apply_fact_marks, apply_upgrades
 FACT_CHECK_MODEL = os.environ.get("FACT_CHECK_MODEL", "").strip()  # empty = same model as the writer
+# Checker for answers to questions (not phases): faster and cheaper. Set ANSWER_CHECK_MODEL= (empty) in
+# .env to use the main checker for everything.
+ANSWER_CHECK_MODEL = os.environ.get("ANSWER_CHECK_MODEL", "claude-haiku-5-5").strip()
 from skeptic import skeptic_review, sk_summary, sk_fix_request
 SKEPTIC_MODEL = os.environ.get("SKEPTIC_MODEL", "").strip()   # empty = same model as the writer
+SKEPTIC_FULL = os.environ.get("SI_WEB_MODE") == "1"   # web: show every review item in full (no cutting)
 SKEPTIC_AFTER = {1, 2, 3, 4}   # after every phase (≈ $0.02-0.04 each). Phase 1 matters most: its
                                # headlines are the first impression (an overreach there went unchallenged)
 _SPARKS = Path(__file__).parent / "CASEBOOK-SPARKS.md"
@@ -391,7 +395,9 @@ LAST_USAGE = ""
 
 # Moving around: typed commands at a pause become a clear instruction to the model.
 # (Code, not policy: the policy can't see what the person typed until we decide what it means.)
-JUMP = re.compile(r"^\s*(?:go\s+to\s+|jump\s+to\s+|back\s+to\s+)?phase\s*([1-4])\s*$", re.I)
+JUMP = re.compile(r"^\s*(?:go\s+to\s+|jump\s+to\s+|back\s+to\s+)?phase\s*([1-5])\s*$", re.I)
+PHASE_NAMES = {1: "The big picture", 2: "Deep dive", 3: "What you can do", 4: "How to push for change",
+               5: "Final brief"}
 
 # THE THREADS, enforced in code. The policy asks the agent to write "Threads: a; b; c" when it sets
 # the list (Phase 1) or changes it. We capture the latest one and put it in the reminder on every
@@ -433,7 +439,35 @@ def phases_done(reply: str) -> set:
     done = re.findall(r"Done:([^\n]*)", reply)
     if not done:
         return set()
-    return {int(n) for n in re.findall(r"Phase\s*([1-4])", re.split(r"Next", done[-1], flags=re.I)[0])}
+    return {int(n) for n in re.findall(r"Phase\s*([1-5])", re.split(r"Next", done[-1], flags=re.I)[0])}
+
+
+def phase_heading(reply: str, messages: list) -> tuple:
+    """(heading text, is_phase). Makes sure every reply says what it is, in code: the model sometimes
+    leaves the 'Phase N' heading out. A reply that finishes a new phase is that phase; anything else
+    (an answer at a pause) is 'Your question'."""
+    if brief_written(reply):
+        return "Phase 5: Final brief", True
+    before = set().union(*(phases_done(m["content"]) for m in messages if m["role"] == "assistant")) \
+        if any(m["role"] == "assistant" for m in messages) else set()
+    new = phases_done(reply) - before
+    if new:
+        n = max(new)
+        return f"Phase {n}: {PHASE_NAMES[n]}", True
+    if not phases_done(reply) and not before:
+        return "First steps", True          # e.g. "what to do today", before Phase 1
+    return "Your question", False
+
+
+def with_heading(reply: str, heading: str) -> str:
+    """Put the heading on top, unless the reply already starts with one that says the same thing."""
+    first = reply.lstrip().splitlines()[0] if reply.strip() else ""
+    label, _, name = heading.partition(":")
+    f = first.lower()
+    if first.startswith("#") and (label.lower() in f or (name.strip() and name.strip().lower() in f)
+                                  or ("question" in heading.lower() and "question" in f)):
+        return reply
+    return f"## {heading}\n\n{reply.lstrip()}"
 
 
 SKEPTIC_RAN: set = set()
@@ -465,7 +499,7 @@ LAST_FIX_REQUEST = ""
 LEDGER = Ledger()
 
 # A "Final brief" heading anywhere in a reply (start of a line). Used to save the brief to its own file.
-BRIEF_HEADING = re.compile(r"^#+\s*Final brief", re.I | re.M)
+BRIEF_HEADING = re.compile(r"^#+\s*(?:Phase\s*5\W*)?Final brief", re.I | re.M)
 BRIEF_CHECKLIST = (
     " (Final brief checklist, every part required: 1 key points; 2 how the main options differ; 3 one short "
     "section per area: finding, action, ask; 4 what's working; 5 what's new vs. already out there; 6 sources: "
@@ -481,6 +515,8 @@ NEXT_LINE = re.compile(r"Next:\s*([^\n·|]+)")
 def translate_command(human: str):
     """Turn 'phase 2', 'back', 'brief' into an instruction. Returns None if it's a normal reply."""
     m = JUMP.match(human)
+    if m and m.group(1) == "5":
+        return "(Skip ahead and write the final brief now.)"
     if m:
         n = m.group(1)
         return (f"(Go to Phase {n} now. If we've already done it, go deeper on it: don't repeat what "
@@ -535,7 +571,7 @@ def run_skeptic(client, messages: list, status=print) -> str:
     add_cost(cost)
     LAST_FIX_REQUEST += sk_fix_request(sk)
     LEDGER.add_skeptic(sk["items"])
-    return sk_summary(sk), cost, len(sk["items"])
+    return sk_summary(sk, full=SKEPTIC_FULL), cost, len(sk["items"])
 
 
 def process_reply(client, reply: str, messages: list, usage_log: list, status=print) -> dict:
@@ -546,6 +582,11 @@ def process_reply(client, reply: str, messages: list, usage_log: list, status=pr
     # the checks audit them; the person reads the audited version.
     usage_log.append(LAST_USAGE)
     capture_threads(reply)
+    heading, is_phase = phase_heading(reply, messages)
+    reply = with_heading(reply, heading)
+    # Answers to questions are checked by a faster model (they're short and come often); phases by the
+    # main checker. Haiku scored 12/14 with 1 false alarm vs Sonnet's 12/14 with none (eval_factcheck.py).
+    checker = (FACT_CHECK_MODEL or MODEL) if is_phase else (ANSWER_CHECK_MODEL or FACT_CHECK_MODEL or MODEL)
     # 1. Quote check (code, certain): a quote that isn't in the document loses its [VERIFIED] tag.
     results = check_quotes(reply, document_texts())
     line = summary_line(results)
@@ -556,8 +597,8 @@ def process_reply(client, reply: str, messages: list, usage_log: list, status=pr
     checks_cost = 0.0
     if FACT_CHECK and needs_check(reply):
         status("   Checking the sources before showing the reply...")
-        fc = fact_check(client, FACT_CHECK_MODEL or MODEL, reply)
-        checks_cost = turn_cost(fc["usage"], FACT_CHECK_MODEL or MODEL) or 0.0
+        fc = fact_check(client, checker, reply)
+        checks_cost = turn_cost(fc["usage"], checker) or 0.0
         add_cost(checks_cost)
         shown, unplaced = apply_fact_marks(shown, fc)
         # Unconfirmed claims the checker found in a document become [VERIFIED], if code confirms
@@ -587,7 +628,8 @@ def process_reply(client, reply: str, messages: list, usage_log: list, status=pr
     usage_log[-1] += (" | " + line.splitlines()[0]) if line else ""
     brief_at = BRIEF_HEADING.search(shown)
     return {"shown": shown, "check_lines": check_lines, "skeptic": skeptic, "checks_cost": checks_cost,
-            "finished": brief_written(reply), "brief": shown[brief_at.start():] if brief_at else ""}
+            "finished": brief_written(reply), "brief": shown[brief_at.start():] if brief_at else "",
+            "heading": heading}
 
 
 def prepare_message(client, human: str, last_reply: str, messages: list, finished: bool,
@@ -723,11 +765,11 @@ PATH_BANNER = """
  ask questions, go deeper on what interests you, or move on.
    Phase 1  The big picture: what it is, the key points, how the main options
             differ, and the most surprising things from a first look
-   Phase 2  How it really works: each area in depth: costs, fine print,
+   Phase 2  Deep dive: each area in depth: costs, fine print,
             who's on the other side, what protects you and what doesn't
    Phase 3  What you can do: practical steps for you and people you care about
    Phase 4  How to push for change: specific ways to fix what's broken
-   Then a one-page final brief.
+   Phase 5  Final brief: a one-page summary to keep or share
 ==============================================================
 """
 
@@ -764,7 +806,8 @@ def reminder() -> str:
         "cover it in full. Do NOT analyze it now; save that for the phase. In both cases, repeat where "
         "we paused (the open questions and 'Next: Phase N') and STOP. If my message says which phase "
         "to go to (or to go back, or to write the brief), do exactly that. Otherwise, do ONLY the next "
-        "phase, start it with 'Key points' (each with its 'So what'), then STOP and wait for me. In "
+        "phase: begin with its heading ('## Phase N: name'), then 'Key points' (each with its 'So what'), "
+        "and end with the progress line ('Done: ... · Next: Phase N, name'). Then STOP and wait for me. In "
         "Phase 3, give an action for each earlier key point that matters; in Phase 4, a change to push "
         "for on each one that's broken (or say there isn't one), each with Ask, To (the exact office), How "
         "(the channel) and Why. Don't re-ask questions you've already "

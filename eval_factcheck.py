@@ -76,7 +76,7 @@ def score(model: str, block: list) -> dict:
            "should_upgrade": 0, "wrong_upgrade": 0, "unplaced": len(unplaced), "cost": s.turn_cost(r["usage"]) or 0,
            "error": r["error"], "misses": [], "alarms": []}
     for (exp, line), ml, ul in zip(block, m_lines, u_lines):
-        flagged, up = "[FACT CHECK:" in ml, ul != line
+        flagged, up = ml != line, ul != line   # flagged = the checker changed or added a label on this line
         if exp == "flag":
             out["should_flag"] += 1
             out["caught"] += flagged

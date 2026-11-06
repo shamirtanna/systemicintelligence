@@ -46,8 +46,10 @@ def shared():
 
 
 def display(text: str) -> str:
-    """Markdown shows `code` in a colour that looks like a warning; the agent's text has no real code."""
-    return text.replace("`", "")
+    """Markdown shows `code` in a colour that looks like a warning; the agent's text has no real code.
+    The model also sometimes underlines quotes with HTML (<u>), which shows up as raw tags here."""
+    import re
+    return re.sub(r"</?(u|br|span)[^>]*>", "", text.replace("`", ""))
 
 
 st.set_page_config(page_title="Systemic Intelligence", page_icon="🔎", layout="centered")
@@ -90,9 +92,10 @@ with st.expander("How this works, and how to read it", expanded=not ss.chat):
         "- **[CHECK: why]** probably right, but not confirmed. Says what to confirm, and where\n"
         "- **[UNVERIFIED: why]** general knowledge or my own reasoning. Treat it as a lead\n\n"
         "**How the labels are kept honest:** before you see a reply, every quote is checked word for word "
-        "against the documents, and a separate checker compares the claims with the sources. If a claim "
-        "doesn't hold up, its label changes to [CHECK] with the reason.\n\n"
-        f"**A second opinion after each phase:** {SK_INTRO}\n\n"
+        "against the documents, and a separate checker compares the claims with the sources (and with "
+        "each other). If a claim doesn't hold up, its label changes to [CHECK] with the reason; if it has "
+        "no source at all, to [UNVERIFIED].\n\n"
+        f"**The Skeptic, after each phase:** {SK_INTRO}\n\n"
         "**You are the last check.** Confirm anything important before acting on it.\n\n"
         "**Privacy:** nothing is saved on this server. Your messages are sent to Anthropic's API to write "
         "the answers, so don't type personal details (names, addresses, policy or account numbers).\n\n"
@@ -106,7 +109,7 @@ def show_turn(turn: dict):
             for c in turn["checks"]:
                 st.markdown(display(c).replace("\n   ", "\n"))
     if turn.get("skeptic"):
-        with st.expander("A second opinion: a separate reviewer's challenge"):
+        with st.expander("The Skeptic: a separate reviewer's challenge"):
             st.markdown(SK_INTRO)
             st.markdown(display(turn["skeptic"]))
     if turn.get("cost"):

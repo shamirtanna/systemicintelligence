@@ -15,6 +15,7 @@
 !factcheck.py
 !skeptic.py
 !eval_factcheck.py
+!test_app.py
 !compare_writers.py
 !SI-AGENT-v2.md
 !CASEBOOK-SPARKS.md

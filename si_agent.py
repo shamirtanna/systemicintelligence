@@ -460,14 +460,16 @@ def phase_heading(reply: str, messages: list) -> tuple:
 
 
 def with_heading(reply: str, heading: str) -> str:
-    """Put the heading on top, unless the reply already starts with one that says the same thing."""
-    first = reply.lstrip().splitlines()[0] if reply.strip() else ""
+    """Put exactly one heading on top. If the model wrote its own matching heading anywhere near the top
+    (the Amazon run put a 'Focus' line first, so a second 'Phase 1' heading appeared), it's removed."""
     label, _, name = heading.partition(":")
-    f = first.lower()
-    if first.startswith("#") and (label.lower() in f or (name.strip() and name.strip().lower() in f)
-                                  or ("question" in heading.lower() and "question" in f)):
-        return reply
-    return f"## {heading}\n\n{reply.lstrip()}"
+    def matches(l: str) -> bool:
+        f = l.lower()
+        return l.lstrip().startswith("#") and (label.lower() in f or (name.strip() and name.strip().lower() in f)
+                                               or ("question" in heading.lower() and "question" in f))
+    lines = reply.strip().splitlines()
+    lines = [l for i, l in enumerate(lines) if not (i < 8 and matches(l))]
+    return f"## {heading}\n\n" + "\n".join(lines).strip()
 
 
 SKEPTIC_RAN: set = set()

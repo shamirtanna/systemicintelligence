@@ -27,6 +27,9 @@ from the claim or quote). For each claim, judge:
   freeze your account at any time" but the rule lists specific conditions; or "must" where it says "may").
 - WRONG: the source says otherwise, or a number, date, name or who-said-it differs.
 - NOT FOUND: you couldn't find support in the cited source after a real look (try 2 sets of words).
+- CONFLICT: the cited source supports the claim, but ANOTHER listed document says something different
+  (a different number, date, name, or rule). Say what the other document says and which one it is.
+  For the claims that matter most (money, deadlines, rights), look in a second document if one covers it.
 Also redo every calculation in the reply, even in [CHECK] or [UNVERIFIED] claims. Otherwise skip
 claims already tagged [CHECK] or [UNVERIFIED]: they're flagged as unconfirmed already.
 Also flag important factual claims (numbers, deadlines, rights, what a company can do) that carry no
@@ -51,8 +54,8 @@ decision they're about to make). Say why each matters, and where or how to confi
 Answer in exactly this format and nothing else:
 CHECKED: <number of claims you checked>
 <VERDICT> | <4 to 12 words copied EXACTLY from the reply where the claim is made> | <what the source actually says, briefly quoted> | <the fix>
-(one line per problem; only OVERSTATED, WRONG, NOT FOUND, MATH or TAG MISSING lines. If there are
-none, write: NO PROBLEMS)
+(one line per problem; only OVERSTATED, WRONG, NOT FOUND, CONFLICT, MATH or TAG MISSING lines. If there
+are none, write: NO PROBLEMS)
 UPGRADE | <4 to 12 words copied EXACTLY from the reply where the claim is made> | <8 to 40 words copied WORD FOR WORD from the document> | <document and page or section>
 (0 to 5 UPGRADE lines)
 CONFIRM | <the unconfirmed claim, in a few words> | <why it matters to the person> | <where or how to confirm>
@@ -75,7 +78,7 @@ LOOKUP_TOOL = {
 }
 MAX_LOOKUPS = 14   # 10 for checking + room to try confirming unconfirmed claims
 DEBUG = False
-PROBLEM_LINE = re.compile(r"^\s*[-*]?\s*(OVERSTATED|WRONG|NOT FOUND|MATH|TAG MISSING)\s*\|(.+)$",
+PROBLEM_LINE = re.compile(r"^\s*[-*]?\s*(OVERSTATED|WRONG|NOT FOUND|CONFLICT|MATH|TAG MISSING)\s*\|(.+)$",
                           re.I | re.M)
 SOURCED_TAG = re.compile(r"\[VERIFIED:", re.I)
 CONFIRM_LINE = re.compile(r"^\s*[-*]?\s*CONFIRM\s*\|(.+)$", re.I | re.M)
@@ -183,7 +186,9 @@ def _norm(s: str) -> str:
 
 REASONS = {"OVERSTATED": "checked, the source says less than this", "WRONG": "checked, the source says otherwise",
            "NOT FOUND": "checked, not found in the cited source", "TAG MISSING": "no source given",
-           "MATH": "checked, the math is off"}
+           "MATH": "checked, the math is off", "CONFLICT": "checked, the sources disagree"}
+# A claim with no source at all becomes [UNVERIFIED]; a claim whose source doesn't hold up becomes [CHECK].
+LABEL_FOR = {"TAG MISSING": "UNVERIFIED"}
 from checks import VERIFIED_TAG  # noqa: E402
 
 
@@ -203,8 +208,9 @@ def apply_fact_marks(reply: str, result: dict) -> tuple:
         # ONE set of labels for the reader. A claim the checker found a problem with becomes [CHECK],
         # with the reason, instead of keeping [VERIFIED] next to a separate "fact check" marker.
         reason = REASONS.get(p["verdict"], p["verdict"].lower())
-        tag = f"[CHECK: {reason}: {says}]" if says else f"[CHECK: {reason}]"
-        if p["verdict"] in ("OVERSTATED", "WRONG", "NOT FOUND") and VERIFIED_TAG.search(lines[hit]):
+        kind = LABEL_FOR.get(p["verdict"], "CHECK")
+        tag = f"[{kind}: {reason}: {says}]" if says else f"[{kind}: {reason}]"
+        if p["verdict"] in ("OVERSTATED", "WRONG", "NOT FOUND", "CONFLICT") and VERIFIED_TAG.search(lines[hit]):
             lines[hit] = VERIFIED_TAG.sub(tag, lines[hit], count=1)   # the claim's own label changes
         else:
             lines[hit] += " " + tag   # a new fact with no label, or math: the label is added

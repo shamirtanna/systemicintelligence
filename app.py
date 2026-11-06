@@ -263,3 +263,10 @@ if ss.brief:
 if ss.sources:
     st.download_button("Download the sources list (verified, needs checking, checks)", ss.sources,
                        file_name="sources.md")
+if ss.messages:
+    # Nothing is saved on the server, so testers who want to help share their session by choice:
+    # download it, read it, then send it (and remove anything personal first).
+    st.download_button("Download this conversation (to share feedback, if you'd like)",
+                       s.transcript_text(ss.messages, ss.usage_log), file_name="conversation.md")
+    st.caption("Helping test this? Downloading and sending your conversation shows how people really use "
+               "it: what you asked, where you got stuck. Remove anything personal first. It's never saved here.")

@@ -746,6 +746,11 @@ def run_conversation(client, policy: str, user_opening: str):
 
 def save_transcript(messages: list, out: Path, usage_log: list = ()):
     """Write the conversation so far to a markdown file (called after every turn)."""
+    out.write_text(transcript_text(messages, usage_log), encoding="utf-8")
+
+
+def transcript_text(messages: list, usage_log: list = ()) -> str:
+    """The conversation as markdown, without the internal reminders (also the web page's download)."""
     lines, turn = [], 0
     for m in messages:
         who = "YOU" if m["role"] == "user" else "AGENT"
@@ -754,7 +759,7 @@ def save_transcript(messages: list, out: Path, usage_log: list = ()):
         if who == "AGENT" and turn < len(usage_log):
             lines.append(f"_(usage: {usage_log[turn]})_\n")  # cost per turn, for later analysis
             turn += 1
-    out.write_text("\n".join(lines), encoding="utf-8")
+    return "\n".join(lines)
 
 
 def extract_text(response) -> str:
@@ -812,7 +817,8 @@ def reminder() -> str:
         "cover it in full. Do NOT analyze it now; save that for the phase. In both cases, repeat where "
         "we paused (the open questions and 'Next: Phase N') and STOP. If my message says which phase "
         "to go to (or to go back, or to write the brief), do exactly that. Otherwise, do ONLY the next "
-        "phase: begin with its heading ('## Phase N: name'), then 'Key points' (each with its 'So what'), "
+        "phase: begin with its heading ('## Phase N: name'), then 'Key points' (each with its 'So what'; "
+        "Phase 1 is a short map, under 300 words, one line per bullet), "
         "and end with the progress line ('Done: ... · Next: Phase N, name'). Then STOP and wait for me. In "
         "Phase 3, give an action for each earlier key point that matters; in Phase 4, a change to push "
         "for on each one that's broken (or say there isn't one), each with Ask, To (the exact office), How "

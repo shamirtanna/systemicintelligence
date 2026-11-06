@@ -110,6 +110,8 @@ box[0].input("a question about fees?").run(); [b for b in at.button if b.label =
 check("phases use the main checker, answers the faster one", seen["checkers"][:1] == [s.MODEL]
       and seen["checkers"][-1] == s.ANSWER_CHECK_MODEL)
 check("answer gets a 'Your question' heading", "Your question" in " ".join(m.value for m in at.markdown))
+dl = [d for d in at.get("download_button") if "conversation" in d.label.lower()]
+check("visitor can download their conversation to share feedback", bool(dl))
 
 # --- display: dollar signs, HTML, links ---
 import importlib.util  # noqa: E402

@@ -99,7 +99,14 @@ check("internal 'Areas:' line hidden", "Areas: a; b" not in md)
 check("progress line shows the next phase", any("→ 2 Deep dive" in m.value for m in at.markdown))
 check("Skeptic shown in full, under its name", "one hundred and forty characters" in md
       and any("Skeptic" in e.label for e in at.expander))
-at.chat_input[0].set_value("a question about fees?").run()
+box = [t for t in at.text_input if "Press Enter" in (t.placeholder or "")]
+check("reply box says Enter moves on to the next phase", bool(box) and "continue to Phase 2" in box[0].placeholder)
+n_before = len(seen["writer"])
+box[0].input("").run(); [b for b in at.button if b.label == "Send"][0].click().run()
+check("empty Enter = continue", len(seen["writer"]) == n_before + 1 and "continue to the next phase"
+      in seen["writer"][-1].lower())
+box = [t for t in at.text_input if "Press Enter" in (t.placeholder or "")]
+box[0].input("a question about fees?").run(); [b for b in at.button if b.label == "Send"][0].click().run()
 check("phases use the main checker, answers the faster one", seen["checkers"][:1] == [s.MODEL]
       and seen["checkers"][-1] == s.ANSWER_CHECK_MODEL)
 check("answer gets a 'Your question' heading", "Your question" in " ".join(m.value for m in at.markdown))
@@ -119,6 +126,17 @@ import tools as T  # noqa: E402
 T.READ_THIS_TURN.clear(); T._DOC_COPIES["u"] = "text"
 T.lookup("u", ["text"])
 check("the checker's lookups aren't listed as the writer's sources", "u" not in T.READ_THIS_TURN)
+
+# --- search_contracts: a live call to USAspending.gov's free public API (needs internet, no key) ---
+try:
+    out = T.search_contracts("Amazon Web Services", "U.S. Immigration and Customs Enforcement",
+                             start_date="2020-10-01", end_date="2026-09-30")
+    check("search_contracts returns official awards with links", "USAspending.gov" in out
+          and "usaspending.gov/award/" in out and "resellers" in out)
+    check("search_contracts result is saved like a document (so the checks can use it)",
+          any(k.startswith("USAspending.gov") for k in T._DOC_COPIES))
+except Exception as e:
+    print(f"SKIP  search_contracts live check (no internet?): {type(e).__name__}")
 
 print(f"\n{sum(results)} of {len(results)} passed")
 raise SystemExit(0 if all(results) else 1)

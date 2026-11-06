@@ -333,6 +333,10 @@ def one_turn(client, policy: str, messages: list, status=None) -> str:
                     tool_calls += 1
                     if block.name == "search_web":
                         status(f"   Searched: {block.input.get('query', '?')}")
+                    elif block.name == "search_contracts":
+                        status(f"   Searching US federal contracts (USAspending.gov): "
+                               f"{block.input.get('recipient', '?')}"
+                               + (f", {block.input['agency']}" if block.input.get("agency") else ""))
                     else:
                         find = block.input.get("find")
                         find = [find] if isinstance(find, str) else find

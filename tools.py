@@ -337,6 +337,75 @@ def read_document(source: str, start: int = 0, find: list | None = None) -> str:
     return f"[source: {source} | characters {start}-{end} of {total}]\n{chunk}{note}"
 
 
+# --- Tool: search_contracts (US federal contract awards, USAspending.gov) ----------------------------
+# USAspending.gov is the official US government site for federal spending (run by the Treasury). Its API
+# is public and needs no key. This turns "a report says ICE spent at least $25 million" into the actual
+# award records. The result is saved like a document, so the quote check and fact checker can use it.
+SEARCH_CONTRACTS_TOOL = {
+    "name": "search_contracts",
+    "description": (
+        "Search US federal CONTRACT awards (USAspending.gov, the official Treasury site) to a company. "
+        "Returns how much each government agency paid it, and the largest awards with their description, "
+        "dates and a link. Use it whenever a question involves US government money going to a company. "
+        "Amounts are money obligated (committed), not contract ceilings. Agencies often buy through "
+        "resellers, so direct awards to a company can undercount what it really earns from government."),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "recipient": {"type": "string", "description": "Company name as it appears on contracts, e.g. 'Amazon Web Services'."},
+            "agency": {"type": "string", "description": "Optional: an awarding sub-agency, e.g. 'U.S. Immigration and Customs Enforcement'."},
+            "keywords": {"type": "array", "items": {"type": "string"}, "description": "Optional: words in the award description."},
+            "start_date": {"type": "string", "description": "YYYY-MM-DD, default 2020-10-01 (earliest allowed 2007-10-01)."},
+            "end_date": {"type": "string", "description": "YYYY-MM-DD, default today."},
+        },
+        "required": ["recipient"],
+    },
+}
+USASPENDING = "https://api.usaspending.gov/api/v2"
+TOOLS.append(SEARCH_CONTRACTS_TOOL)   # the writer can call it (it's in the tool list sent with each call)
+
+
+def search_contracts(recipient: str, agency: str = "", keywords: list | None = None,
+                     start_date: str = "", end_date: str = "") -> str:
+    from datetime import date
+    filters = {"recipient_search_text": [recipient[:100]], "award_type_codes": ["A", "B", "C", "D"],
+               "time_period": [{"start_date": start_date or "2020-10-01",
+                                "end_date": end_date or date.today().isoformat()}]}
+    if agency:
+        filters["agencies"] = [{"type": "awarding", "tier": "subtier", "name": agency}]
+    if keywords:
+        filters["keywords"] = [str(k)[:60] for k in keywords][:5]
+    period = f"{filters['time_period'][0]['start_date']} to {filters['time_period'][0]['end_date']}"
+    with httpx.Client(timeout=40) as c:
+        by_agency = c.post(f"{USASPENDING}/search/spending_by_category/awarding_subagency/",
+                           json={"filters": filters, "limit": 10, "page": 1})
+        awards = c.post(f"{USASPENDING}/search/spending_by_award/", json={
+            "filters": filters, "limit": 8, "page": 1, "sort": "Award Amount", "order": "desc",
+            "fields": ["Award ID", "Recipient Name", "Award Amount", "Awarding Sub Agency", "Description",
+                       "Start Date", "End Date", "generated_internal_id"]})
+    by_agency.raise_for_status()
+    awards.raise_for_status()
+    rows = by_agency.json().get("results", [])
+    lines = [f"[USAspending.gov contract awards to '{recipient}'"
+             + (f" from {agency}" if agency else "") + (f", matching {keywords}" if keywords else "")
+             + f", {period}. Source: the US Treasury's official spending data. Amounts are obligations "
+             "(money committed). Purchases made through resellers are NOT counted under this company.]"]
+    lines.append("\nBy awarding agency (total obligated):")
+    lines += [f"- {r.get('name')}: ${r.get('amount', 0):,.0f}" for r in rows] or ["- (no awards found)"]
+    lines.append("\nLargest awards:")
+    for a in awards.json().get("results", []):
+        link = f"https://www.usaspending.gov/award/{a.get('generated_internal_id')}"
+        lines.append(f"- ${a.get('Award Amount') or 0:,.0f} | {a.get('Awarding Sub Agency')} | "
+                     f"{a.get('Start Date')} to {a.get('End Date')} | award {a.get('Award ID')} | {link}\n"
+                     f"  Description: {(a.get('Description') or '').strip()[:300]}")
+    text = "\n".join(lines)
+    key = f"USAspending.gov: contract awards to {recipient}" + (f" from {agency}" if agency else "")
+    _DOC_COPIES[key] = text          # saved like a document: the checks and re-reads can use it
+    if key not in READ_THIS_TURN:
+        READ_THIS_TURN.append(key)
+    return text
+
+
 def lookup(source: str, find: list | None = None, start: int = 0) -> str:
     """For the fact checker: like read_document, but ONLY documents already read this run (no web
     access, no new downloads), so it checks the main agent's sources instead of hunting for new ones."""
@@ -357,6 +426,9 @@ def run_tool(name: str, args: dict) -> str:
             return read_document(args.get("source", ""), args.get("start", 0), args.get("find"))
         if name == "search_web":
             return search_web(args.get("query", ""), args.get("only_sites"))
+        if name == "search_contracts":
+            return search_contracts(args.get("recipient", ""), args.get("agency", ""), args.get("keywords"),
+                                    args.get("start_date", ""), args.get("end_date", ""))
         return f"[unknown tool: {name}]"
     except Exception as e:
         return f"[{name} failed: {type(e).__name__}: {e}]"

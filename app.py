@@ -244,9 +244,18 @@ else:
         if not ss.finished and cols[1].button("Skip to the final brief"):
             run_turn("Skip to the final brief.", "brief")
             st.rerun()
-        text = st.chat_input("Answer the questions, ask anything, or say \"more on ...\"")
-        if text:
-            run_turn(text, text)
+        # A form, not st.chat_input: chat_input ignores an empty Enter, and Enter should move you on.
+        go_to = f"continue to {nxt}" if nxt and not ss.finished else "send"
+        with st.form("reply", clear_on_submit=True):
+            text = st.text_input("Your reply", label_visibility="collapsed",
+                                 placeholder=f"Answer, ask anything, or say \"more on ...\". "
+                                             f"Press Enter with nothing typed to {go_to}.")
+            sent = st.form_submit_button("Send")
+        if sent:
+            if text.strip():
+                run_turn(text.strip(), text.strip())
+            elif not ss.finished:
+                run_turn("Continue.", "")
             st.rerun()
 
 if ss.brief:

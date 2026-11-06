@@ -104,5 +104,21 @@ check("phases use the main checker, answers the faster one", seen["checkers"][:1
       and seen["checkers"][-1] == s.ANSWER_CHECK_MODEL)
 check("answer gets a 'Your question' heading", "Your question" in " ".join(m.value for m in at.markdown))
 
+# --- display: dollar signs, HTML, links ---
+import importlib.util  # noqa: E402
+spec = importlib.util.spec_from_file_location("app_mod", "app.py")
+src = open("app.py", encoding="utf-8").read()
+ns = {}
+exec(src[src.index("def display"):src.index("st.set_page_config")], {"__name__": "x"}, ns)
+d = ns["display"]('$25 million and $9 billion <u>quoted</u> `code`')
+check("dollar signs escaped (not read as math)", d.count("\\$") == 2)
+check("HTML underline tags removed", "<u>" not in d and "</u>" not in d)
+check("source links are clickable", ns["link"]("https://www.example.gov/docs/report.pdf")
+      == "[www.example.gov: report.pdf](https://www.example.gov/docs/report.pdf)")
+import tools as T  # noqa: E402
+T.READ_THIS_TURN.clear(); T._DOC_COPIES["u"] = "text"
+T.lookup("u", ["text"])
+check("the checker's lookups aren't listed as the writer's sources", "u" not in T.READ_THIS_TURN)
+
 print(f"\n{sum(results)} of {len(results)} passed")
 raise SystemExit(0 if all(results) else 1)

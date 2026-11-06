@@ -4,3 +4,8 @@ primaryColor = "#2563EB"
 
 [browser]
 gatherUsageStats = false
+
+# Pick up code changes automatically while testing locally (otherwise the page keeps running old
+# code until you click "Rerun"). Policy changes still need a restart: the policy is loaded once.
+[server]
+runOnSave = true

@@ -30,6 +30,7 @@ for k, v in {"PRICE_IN": "2", "PRICE_OUT": "10", "PRICE_CACHE_WRITE": "2.50", "P
     os.environ.setdefault(k, v)
 
 import si_agent as s  # noqa: E402  (must load after the settings above)
+import tools  # noqa: E402
 from skeptic import SK_INTRO  # noqa: E402
 
 VISITOR_BUDGET = float(os.environ.get("VISITOR_BUDGET") or os.environ.get("RUN_BUDGET") or 3.00)
@@ -39,17 +40,43 @@ EXAMPLE = "My insurer denied a claim for an MRI my doctor ordered."
 
 
 @st.cache_resource
+def _shared():
+    """One client and one lock for the whole server. The lock makes visitors take turns: the agent's
+    working state is swapped in per visitor, so only one turn may run at a time."""
+    return s.make_client(), threading.Lock()
+
+
+@st.cache_data
+def _policy(changed: float) -> str:
+    """The policy, reloaded whenever its files change (it used to load once, so edits needed a restart)."""
+    return s.load_policy()
+
+
 def shared():
-    """One client, one policy, and one lock for the whole server. The lock makes visitors take turns:
-    the agent's working state is swapped in per visitor, so only one turn may run at a time."""
-    return s.make_client(), s.load_policy(), threading.Lock()
+    client, lock = _shared()
+    files = [s.POLICY_PATH, s.POLICY_PATH.parent / "CASEBOOK-SPARKS.md"]
+    return client, _policy(sum(f.stat().st_mtime for f in files if f.exists())), lock
 
 
 def display(text: str) -> str:
-    """Markdown shows `code` in a colour that looks like a warning; the agent's text has no real code.
-    The model also sometimes underlines quotes with HTML (<u>), which shows up as raw tags here."""
+    """Tidy the agent's text for Streamlit's markdown:
+    - `code` shows in a colour that looks like a warning (the agent's text has no real code)
+    - HTML underlines (<u>) the model sometimes adds show up as raw tags
+    - a pair of $ signs is read as a math formula ("$25 million ... $9 billion" turns into garbled
+      italics), so every $ is escaped to show as a plain dollar sign."""
     import re
-    return re.sub(r"</?(u|br|span)[^>]*>", "", text.replace("`", ""))
+    text = re.sub(r"(?:<|&lt;)/?(u|br|span)[^>]*?(?:>|&gt;)", "", text.replace("`", ""))
+    return re.sub(r"(?<!\\)\$", r"\\$", text)
+
+
+def link(source: str) -> str:
+    """A clickable link for a document the agent read (web address), or just its name (a file)."""
+    if not source.startswith(("http://", "https://")):
+        return source
+    from urllib.parse import urlparse
+    u = urlparse(source)
+    tail = u.path.rstrip("/").split("/")[-1] or u.netloc
+    return f"[{u.netloc}: {tail[:60]}]({source})"
 
 
 st.set_page_config(page_title="Systemic Intelligence", page_icon="🔎", layout="centered")
@@ -104,6 +131,9 @@ with st.expander("How this works, and how to read it", expanded=not ss.chat):
 
 def show_turn(turn: dict):
     st.markdown(display(turn["text"]))
+    if turn.get("sources"):
+        with st.expander(f"Sources read for this reply ({len(turn['sources'])}): open them yourself"):
+            st.markdown("\n".join(f"- {link(d)}" for d in turn["sources"]))
     if turn.get("checks"):
         with st.expander("How this reply was checked, and what to confirm"):
             for c in turn["checks"]:
@@ -136,6 +166,7 @@ def run_turn(user_text: str, human: str | None):
                         expanded=True)
         with lock:
             s.use_state(ss.si)
+            tools.READ_THIS_TURN.clear()        # reset under the lock, so it only holds this reply's reads
             try:
                 if human is None:
                     ss.messages.append({"role": "user", "content": user_text + s.reminder()})
@@ -155,11 +186,12 @@ def run_turn(user_text: str, human: str | None):
                     s.save_transcript(ss.messages, ss.transcript, ss.usage_log)
                     ss.transcript.with_name(ss.transcript.stem + "-sources.md").write_text(ss.sources, encoding="utf-8")
                 cost = s.COST_SUMMARY.replace("\n", " ").replace("      ", " ")
+                sources = list(tools.READ_THIS_TURN)   # every document this reply opened, incl. re-reads
             finally:
                 s.save_state(ss.si)
         box.update(label="Done", state="complete")
         turn = {"role": "assistant", "text": out["shown"], "checks": out["check_lines"],
-                "skeptic": out["skeptic"], "cost": cost}
+                "skeptic": out["skeptic"], "cost": cost, "sources": sources}
         show_turn(turn)
     ss.chat.append(turn)
     ss.last_reply = reply

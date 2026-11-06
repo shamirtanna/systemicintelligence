@@ -315,7 +315,12 @@ def _find_passages(source: str, text: str, terms: list) -> str:
             f"{', '.join(map(str, terms))}]\n" + "\n\n".join(out) + tail)
 
 
+READ_THIS_TURN: list = []   # documents the writer opened in the current reply (the web page links them)
+
+
 def read_document(source: str, start: int = 0, find: list | None = None) -> str:
+    if source not in READ_THIS_TURN:
+        READ_THIS_TURN.append(source)
     text = _DOC_COPIES.get(source)
     if text is None:
         text = (_fetch_url(source) if source.startswith(("http://", "https://"))
@@ -337,7 +342,11 @@ def lookup(source: str, find: list | None = None, start: int = 0) -> str:
     access, no new downloads), so it checks the main agent's sources instead of hunting for new ones."""
     if source not in _DOC_COPIES:
         return f"[not available: '{source}' wasn't read this run. Available: {', '.join(_DOC_COPIES)}]"
-    return read_document(source, start, find)
+    already = source in READ_THIS_TURN
+    out = read_document(source, start, find)
+    if not already:                 # the checker's lookups aren't the writer's sources for this reply
+        READ_THIS_TURN.remove(source)
+    return out
 
 
 def run_tool(name: str, args: dict) -> str:

@@ -244,6 +244,9 @@ else:
         if not ss.finished and cols[1].button("Skip to the final brief"):
             run_turn("Skip to the final brief.", "brief")
             st.rerun()
+        if not ss.finished:   # the nudge: the person's own questions and experience steer the next part
+            st.markdown("**Worth a moment:** What isn't clear? What doesn't make sense to you? What could be "
+                        "an issue for you, or for people you know? Say it below: it shapes what I dig into next.")
         # A form, not st.chat_input: chat_input ignores an empty Enter, and Enter should move you on.
         go_to = f"continue to {nxt}" if nxt and not ss.finished else "send"
         with st.form("reply", clear_on_submit=True):

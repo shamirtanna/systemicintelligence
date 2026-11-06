@@ -838,6 +838,9 @@ def reminder() -> str:
 
 
 PAUSE_PROMPT = """
+WORTH A MOMENT: What isn't clear? What doesn't make sense to you? What could be an issue
+for you, or for people you know? (Say it here: it shapes what I dig into next.)
+
 YOUR TURN:
   • Answer the questions above, then I'll go on to the next phase (skip any; I'll use defaults)
   • Or ask anything: a new question, something unclear, or "more on <a point>" to go deeper.

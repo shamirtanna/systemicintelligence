@@ -43,9 +43,26 @@ brief are saved in `transcripts/`.
 `ANTHROPIC_API_KEY`, and optionally `ACCESS_CODE` and `VISITOR_BUDGET` (dollars per visitor), as secrets.
 The web version saves nothing on the server and never reads files from it.
 
+## Examples
+Two final briefs the agent wrote, unedited, in `examples/`: [Kalshi](examples/kalshi-brief.md) (from an
+earlier version, before the separate fact checker) and [a denied MRI claim](examples/health-insurance-mri-brief.md).
+Treat them as examples of the output, not as verified reports.
+
+## A small comparison test
+`compare_approaches.py` asks one question about Kalshi four ways: a plain AI chat, the method (the policy)
+with the same tools, the full agent, and the full agent with a few real questions from earlier runs asked
+along the way. An AI judge, which doesn't know which is which, scores each against 13 findings taken from
+earlier, longer runs and checked in Kalshi's documents. In one run each: the plain chat found 3, the method
+7, the full agent 7.5 to 8, and the full agent with questions 9.5 (half a point for a partial answer). Limits:
+one run each; the judge is the same model family; the 13 findings come from the author's earlier runs, and
+the questions asked match three of them; no version found all 13; and which documents get opened varies a lot
+from run to run. Run it yourself with `python compare_approaches.py` (about $4 to $7).
+
 ## Files
-- `SI-AGENT-v2.md`: the method (the policy the agent follows). `CASEBOOK-SPARKS.md`: patterns and
-  wins from real cases in other systems.
+- `SI-AGENT-v2.md`: the method (the policy the agent follows). `CASEBOOK-SPARKS.md`: the short version
+  of the casebook that the agent reads. `CASEBOOK.md`: the full casebook of real cases and how each was found
+  (compiled from news, regulator releases and court filings; not independently re-verified).
 - `si_agent.py`: the conversation loop. `tools.py`: web search + document reading.
 - `checks.py`, `factcheck.py`, `skeptic.py`: the checks. `eval_factcheck.py`: accuracy test for the
   fact checker. `compare_writers.py`: compare writer models on the same question.
+  `compare_approaches.py`: the comparison test above.

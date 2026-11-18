@@ -1,6 +1,6 @@
 ## Casebook: patterns and moves from other systems (sparks, not templates)
 
-Short summaries of real cases from the SI Accountability Casebook (ACCOUNTABILITY-CASEBOOK.md), where
+Short summaries of real cases from the SI Accountability Casebook (CASEBOOK.md), where
 ordinary people were taken advantage of, and how it was found and fixed. Use them as ideas to consider:
 - Phase 2: "Does this pattern show up here?" It only counts if THIS system's own documents or records show
   it. Never force a match, and don't mention a pattern that doesn't fit.

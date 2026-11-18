@@ -164,7 +164,12 @@ def run_turn(user_text: str, human: str | None):
         # Open by default, so the visitor watches the work happen (searches, documents, checks).
         box = st.status("Working: searching, reading and checking. This usually takes 1 to 3 minutes...",
                         expanded=True)
+        if lock.locked():
+            box.update(label="Another visitor's turn is running (each takes 1 to 3 minutes). Yours starts when it finishes...",
+                       state="running", expanded=True)
         with lock:
+            box.update(label="Working: searching, reading and checking. This usually takes 1 to 3 minutes...",
+                       state="running", expanded=True)
             s.use_state(ss.si)
             tools.READ_THIS_TURN.clear()        # reset under the lock, so it only holds this reply's reads
             try:

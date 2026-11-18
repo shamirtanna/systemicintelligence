@@ -352,8 +352,8 @@ SEARCH_CONTRACTS_TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "recipient": {"type": "string", "description": "Company name as it appears on contracts, e.g. 'Lockheed Martin'."},
-            "agency": {"type": "string", "description": "Optional: an awarding sub-agency, e.g. 'Department of the Navy'."},
+            "recipient": {"type": "string", "description": "Company name as it appears on contracts, e.g. 'Maximus' (a federal health-program contractor)."},
+            "agency": {"type": "string", "description": "Optional: an awarding sub-agency, e.g. 'Centers for Medicare and Medicaid Services'."},
             "keywords": {"type": "array", "items": {"type": "string"}, "description": "Optional: words in the award description."},
             "start_date": {"type": "string", "description": "YYYY-MM-DD, default 2020-10-01 (earliest allowed 2007-10-01)."},
             "end_date": {"type": "string", "description": "YYYY-MM-DD, default today."},

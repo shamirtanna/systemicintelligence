@@ -131,7 +131,7 @@ check("the checker's lookups aren't listed as the writer's sources", "u" not in 
 
 # --- search_contracts: a live call to USAspending.gov's free public API (needs internet, no key) ---
 try:
-    out = T.search_contracts("Lockheed Martin", "Department of the Navy",
+    out = T.search_contracts("Maximus", "Centers for Medicare and Medicaid Services",
                              start_date="2020-10-01", end_date="2026-09-30")
     check("search_contracts returns official awards with links", "USAspending.gov" in out
           and "usaspending.gov/award/" in out and "resellers" in out)

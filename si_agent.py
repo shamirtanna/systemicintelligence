@@ -465,7 +465,7 @@ def phase_heading(reply: str, messages: list) -> tuple:
 
 def with_heading(reply: str, heading: str) -> str:
     """Put exactly one heading on top. If the model wrote its own matching heading anywhere near the top
-    (the Amazon run put a 'Focus' line first, so a second 'Phase 1' heading appeared), it's removed."""
+    (one run put a 'Focus' line first, so a second 'Phase 1' heading appeared), it's removed."""
     label, _, name = heading.partition(":")
     def matches(l: str) -> bool:
         f = l.lower()

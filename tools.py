@@ -339,7 +339,7 @@ def read_document(source: str, start: int = 0, find: list | None = None) -> str:
 
 # --- Tool: search_contracts (US federal contract awards, USAspending.gov) ----------------------------
 # USAspending.gov is the official US government site for federal spending (run by the Treasury). Its API
-# is public and needs no key. This turns "a report says ICE spent at least $25 million" into the actual
+# is public and needs no key. This turns "a report says an agency spent at least $25 million with a company" into the actual
 # award records. The result is saved like a document, so the quote check and fact checker can use it.
 SEARCH_CONTRACTS_TOOL = {
     "name": "search_contracts",
@@ -352,8 +352,8 @@ SEARCH_CONTRACTS_TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "recipient": {"type": "string", "description": "Company name as it appears on contracts, e.g. 'Amazon Web Services'."},
-            "agency": {"type": "string", "description": "Optional: an awarding sub-agency, e.g. 'U.S. Immigration and Customs Enforcement'."},
+            "recipient": {"type": "string", "description": "Company name as it appears on contracts, e.g. 'Lockheed Martin'."},
+            "agency": {"type": "string", "description": "Optional: an awarding sub-agency, e.g. 'Department of the Navy'."},
             "keywords": {"type": "array", "items": {"type": "string"}, "description": "Optional: words in the award description."},
             "start_date": {"type": "string", "description": "YYYY-MM-DD, default 2020-10-01 (earliest allowed 2007-10-01)."},
             "end_date": {"type": "string", "description": "YYYY-MM-DD, default today."},

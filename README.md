@@ -5,6 +5,8 @@ health insurance, renting...), act on it in their own life, and push for change 
 against them. It reads the primary documents (terms, rulebooks, regulator records), shows its sources,
 and is honest about what it could and couldn't verify.
 
+**Try it:** https://systemicintelligence.streamlit.app/ (access code on request: message me where you found this). It handles one visitor's turn at a time, so it can be slow, and each visit has a small spending limit.
+
 **Status:** an early experiment, tested on prediction markets (Kalshi, Polymarket) and health insurance
 denials. Not legal, medical or financial advice.
 

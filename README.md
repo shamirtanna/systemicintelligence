@@ -59,6 +59,7 @@ the questions asked match three of them; no version found all 13; and which docu
 from run to run. Run it yourself with `python compare_approaches.py` (about $4 to $7).
 
 ## Files
+- `SOURCES-ARTICLE.md`: the source, rule or page, and verification status for each claim in the article about Kalshi and health insurance.
 - `SI-AGENT-v2.md`: the method (the policy the agent follows). `CASEBOOK-SPARKS.md`: the short version
   of the casebook that the agent reads. `CASEBOOK.md`: the full casebook of real cases and how each was found
   (compiled from news, regulator releases and court filings; not independently re-verified).

@@ -61,7 +61,7 @@ Every claim in the article, with the document it comes from, where in the docume
 - **"On medical grounds":** the agent's summary of the page is that outside review covers medical-judgment denials, and that a non-covered service often is not eligible. This is my reading; confirm the scope on the page and in your plan documents.
 - **Reviewers are paid by the insurer in at least one state:** Pennsylvania Insurance Department (read and quoted): "The insurance company pays for completed reviews." The same page says the state "certifies that there are no conflicts of interest" between the review organization and the insurer. https://www.pa.gov/services/insurance/request-a-review-if-your-health-insurance-denied-a-treatment-medication-or-service
 
-## 7. Insider trading is banned; there are reported cases; no independent measure of how well Kalshi stops it
+## 7. Insider trading is banned; there are reported cases; no independent evaluation of how well Kalshi stops it
 
 **The ban**
 - **Rulebook Rule 5.15(y), p. 54** (read and quoted): "An 'Insider' means any person who has access to or is in a position to have access to material nonpublic information before such information is made publicly available." The rule bars insiders from trading in that market.
@@ -72,8 +72,8 @@ Every claim in the article, with the document it comes from, where in the docume
 - CFTC Enforcement Division advisory on prediction markets (snippet only): describes a Kalshi penalty of $2,246.36 and a five-year suspension of a trader. https://www.cftc.gov/PressRoom/PressReleases/9185-26
 - Lowenstein client alert, Apr 2026 (snippet only): Kalshi and the CFTC announced disciplinary and enforcement actions on April 22 and 23, 2026.
 
-**No independent measure of effectiveness**
-- This is a negative finding. Searches of the CFTC, Kalshi, the Congressional Research Service and news coverage found no independent measure of how many insider trades go undetected or how well Kalshi's monitoring works.
+**No independent evaluation of effectiveness**
+- This is a negative finding. Searches of the CFTC, Kalshi, the Congressional Research Service and news coverage found no independent evaluation of how many insider trades go undetected or how well Kalshi's monitoring works.
 - Kalshi describes its own measures on its site (identity checks, screening and blocking, surveillance, and employer details on higher-risk markets): https://kalshi.com/market-integrity/kyc-surveillance, https://kalshi.com/market-integrity/blocked-traders (snippet only). Kalshi-reported investigation counts reached the project through news coverage (tagged unconfirmed).
 - A House Oversight Committee letter of May 2026 asked Kalshi how it verifies identity and detects anomalous trading, which suggests the answer is not public: https://oversight.house.gov/wp-content/uploads/2026/05/Kalshi-Prediction-Markets-Letter.pdf (snippet only).
 - The Congressional Research Service has written that the open question is "whether and how" insider trading law applies to these markets (snippet only; the page blocked fetching): https://www.congress.gov/crs-product/LSB11406
